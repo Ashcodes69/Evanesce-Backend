@@ -3,14 +3,35 @@ from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal
 from app.models.message import Message
+from app.models.user import User
+from app.core.security import verify_token
 
 
 router = APIRouter()
 active_connection = {}
 
 
-@router.websocket("/ws/{user_id}")
-async def websoket_endpoint(websoket: WebSocket, user_id: int):
+@router.websocket("/ws")
+async def websoket_endpoint(websoket: WebSocket):
+    token = websoket.query_params.get('token')
+    if not token:
+        await websoket.close(code=1000)
+        return
+    
+    username = verify_token(token)
+    if username is None:
+        await websoket.close(code=1000)
+        return
+    
+    db: Session = SessionLocal()
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        await websoket.close(code=1000)
+        return
+    
+    user_id = user.id
+    
     await websoket.accept()
 
     active_connection[user_id] = websoket
