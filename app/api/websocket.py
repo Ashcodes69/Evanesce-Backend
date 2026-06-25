@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
@@ -33,16 +34,43 @@ async def websoket_endpoint(websoket: WebSocket):
     user_id = user.id
 
     await websoket.accept()
+    if user_id in active_connection:
+        old_socket = active_connection[user_id]
+        await old_socket.close()
 
     active_connection[user_id] = websoket
-    db: Session = SessionLocal()
+    pending_messages = (
+        db.query(Message)
+        .filter(Message.receiver_id == user_id, Message.status == "sent")
+        .order_by(Message.created_at.asc())
+        .all()
+    )
+    for msg in pending_messages:
+        msg.status = "delivered"
+
+        await websoket.send_json(
+            {
+                "message_id": msg.id,
+                "from": msg.sender_id,
+                "message": msg.content,
+                "status": msg.status,
+            }
+        )
+        db.commit()
+
+    # db: Session = SessionLocal()
 
     try:
         while True:
             data = await websoket.receive_json()
             receiver_id = int(data["receiver_id"])
+            event = data.get("type", "message")
+            if event == "typing":
+                if receiver_id in active_connection:
+                    receiver_soket = active_connection[receiver_id]
+                    await receiver_soket.send_json({"from": user_id, "type": "typing"})
+                continue
             message_text = data["message"]
-
             # save message in db
             new_message = Message(
                 sender_id=user_id,
@@ -56,21 +84,24 @@ async def websoket_endpoint(websoket: WebSocket):
             print("Connected users:", active_connection.keys())
             print("Receiver:", receiver_id, type(receiver_id))
             if receiver_id in active_connection:
-
-                new_message.status = 'delivered'
+                new_message.status = "delivered"
                 db.commit()
                 db.refresh(new_message)
 
                 receiver_soket = active_connection[receiver_id]
 
-                await receiver_soket.send_json({
-                    'message_id': new_message.id,
-                    'from': user_id,
-                    'message': message_text,
-                    'status': new_message.status
-                })
+                await receiver_soket.send_json(
+                    {
+                        "message_id": new_message.id,
+                        "from": user_id,
+                        "message": message_text,
+                        "status": new_message.status,
+                    }
+                )
 
     except WebSocketDisconnect:
+        user.last_seen = datetime.now(timezone.utc)
+        db.commit()
         del active_connection[user_id]
 
     finally:

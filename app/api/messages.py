@@ -27,6 +27,7 @@ def get_messages(
                 & (Message.receiver_id == current_user.id)
             )
         )
+        .order_by(Message.created_at.asc())
         .all()
     )
 
@@ -64,6 +65,15 @@ def get_conversations(
                 "username": user.username,
                 "last_message": msg.content,
                 "created_at": msg.created_at,
+                "unread_msg_count": (
+                    db.query(Message)
+                    .filter(
+                        Message.sender_id == other_user_id,
+                        Message.receiver_id == current_user.id,
+                        Message.status != "seen",
+                    )
+                    .count()
+                ),
             }
     return list(conversations.values())
 
@@ -74,18 +84,23 @@ def mark_messages_seen(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    messages = db.query(Message).filter(
-        Message.sender_id == user_id,
-        Message.receiver_id == current_user.id,
-        Message.status == "delivered",
-    ).all()
+    messages = (
+        db.query(Message)
+        .filter(
+            Message.sender_id == user_id,
+            Message.receiver_id == current_user.id,
+            Message.status == "delivered",
+        )
+        .order_by(Message.created_at.asc())
+        .all()
+    )
 
     if not messages:
-        return{"message": 'no delivered message found'}
+        return {"message": "no delivered message found"}
 
     for msg in messages:
-        msg.status = 'seen'
+        msg.status = "seen"
 
     db.commit()
 
-    return {'message': 'message updated', 'count': len(messages)}
+    return {"message": "message updated", "count": len(messages)}

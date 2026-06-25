@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String
+from sqlalchemy import Column, DateTime, Integer, String
 from app.db.database import Base
 
 class User(Base):
@@ -8,3 +8,4 @@ class User(Base):
     username = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     encrypted_phone_number = Column(String, unique=True, nullable=False)
+    last_seen = Column(DateTime, nullable=True)

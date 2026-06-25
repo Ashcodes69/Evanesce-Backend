@@ -11,6 +11,7 @@ from app.core.security import (
     verify_password,
     create_access_token,
 )
+from app.api.websocket import active_connection
 from app.services.auth_service import get_current_user
 
 router = APIRouter()
@@ -79,3 +80,16 @@ def search_user(username: str, db: Session = Depends(get_db)):
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
     return user
+
+# ================ route to check the users online/ofline status ==========
+@router.get('/users/status/{user_id}')
+def get_user_status(user_id: int):
+    if user_id in active_connection:
+        return {'status': 'online'}
+    return {'status': 'ofline'}
+
+# =============== route to get user last seen ====================
+@router.get('/users/last-seen/{user_id}')
+def get_last_seen(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    return {'last_seen': user.last_seen}

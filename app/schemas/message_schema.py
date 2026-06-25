@@ -22,3 +22,4 @@ class ConversationResponse(BaseModel):
     username: str
     last_message: str
     created_at: datetime
+    unread_msg_count: int
