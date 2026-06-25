@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, ForeignKey, Text
+from sqlalchemy import Column, Integer, ForeignKey, Text, DateTime, String
 from app.db.database import Base
+from datetime import datetime, timezone
 
 
 class Message(Base):
@@ -11,3 +12,7 @@ class Message(Base):
     receiver_id = Column(Integer, ForeignKey("users.id"))
 
     content = Column(Text, nullable=False)
+
+    status = Column(String, default='sent')
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
