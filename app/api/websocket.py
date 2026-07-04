@@ -39,6 +39,13 @@ async def websoket_endpoint(websoket: WebSocket):
         await old_socket.close()
 
     active_connection[user_id] = websoket
+
+    for other_id, other_socket in active_connection.items():
+        if other_id != user_id:
+            await other_socket.send_json(
+                {"type": "presence", "user_id": user_id, "status": "online"}
+            )
+
     pending_messages = (
         db.query(Message)
         .filter(Message.receiver_id == user_id, Message.status == "sent")
@@ -54,12 +61,10 @@ async def websoket_endpoint(websoket: WebSocket):
                 "from": msg.sender_id,
                 "message": msg.content,
                 "status": msg.status,
-                "created_at": str(msg.created_at)
+                "created_at": str(msg.created_at),
             }
         )
         db.commit()
-
-    # db: Session = SessionLocal()
 
     try:
         while True:
@@ -72,7 +77,7 @@ async def websoket_endpoint(websoket: WebSocket):
                     await receiver_soket.send_json({"from": user_id, "type": "typing"})
                 continue
             message_text = data["message"]
-            # save message in db
+
             new_message = Message(
                 sender_id=user_id,
                 receiver_id=receiver_id,
@@ -82,8 +87,7 @@ async def websoket_endpoint(websoket: WebSocket):
             db.add(new_message)
             db.commit()
             db.refresh(new_message)
-            print("Connected users:", active_connection.keys())
-            print("Receiver:", receiver_id, type(receiver_id))
+
             if receiver_id in active_connection:
                 new_message.status = "delivered"
                 db.commit()
@@ -97,7 +101,7 @@ async def websoket_endpoint(websoket: WebSocket):
                         "from": user_id,
                         "message": message_text,
                         "status": new_message.status,
-                        "created_at": str(new_message.created_at)
+                        "created_at": str(new_message.created_at),
                     }
                 )
 
@@ -105,6 +109,16 @@ async def websoket_endpoint(websoket: WebSocket):
         user.last_seen = datetime.now(timezone.utc)
         db.commit()
         del active_connection[user_id]
+
+        for other_id, other_socket in active_connection.items():
+            await other_socket.send_json(
+                {
+                    "type": "presence",
+                    "user_id": user_id,
+                    "status": "offline",
+                    "last_seen": str(user.last_seen),
+                }
+            )
 
     finally:
         db.close()

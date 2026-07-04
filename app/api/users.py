@@ -101,7 +101,7 @@ def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
 def get_user_status(user_id: int):
     if user_id in active_connection:
         return {"status": "online"}
-    return {"status": "ofline"}
+    return {"status": "offline"}
 
 
 # =============== route to get user last seen ====================
