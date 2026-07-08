@@ -4,10 +4,12 @@ import os
 from jose import jwt, JWTError
 from datetime import datetime, timedelta, timezone
 from fastapi.security import OAuth2PasswordBearer
+import hmac
+import hashlib
 
 from dotenv import load_dotenv
 
-# ================ passward hashing ====================
+# ================passward hashing ====================
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -16,19 +18,27 @@ def hash_password(password: str):
     return pwd_context.hash(password)
 
 
-# =============== Encrypting Phone numbe r=================
+# =============== Encrypting emailr=================
 
 load_dotenv()
 
 cipher = Fernet(os.getenv("ENCRYPTION_KEY"))
 
-
-def encrypt_phone(phone: str):
-    return cipher.encrypt(phone.encode()).decode()
+EMAIL_HASH_SECRET = os.getenv("EMAIL_HASH_SECRET").encode()
 
 
-def decrypt_phone(encrypted_phone: str):
-    return cipher.decrypt(encrypted_phone.encode()).decode()
+def hash_email(email: str):
+    return hmac.new(
+        EMAIL_HASH_SECRET, email.lower().strip().encode(), hashlib.sha256
+    ).hexdigest()
+
+
+def encrypt_email(email: str):
+    return cipher.encrypt(email.lower().strip().encode()).decode()
+
+
+def decrypt_email(encrypted_email: str):
+    return cipher.decrypt(encrypted_email.encode()).decode()
 
 
 # ===== compairing users given password to its hashed password =====
@@ -65,7 +75,6 @@ def verify_token(token: str):
 
     except JWTError:
         return None
-    
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl='login'
-)
+
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")

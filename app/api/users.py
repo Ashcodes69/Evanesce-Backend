@@ -6,8 +6,9 @@ from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user_schema import UserCreate, UserPublic
 from app.core.security import (
+    hash_email,
+    encrypt_email,
     hash_password,
-    encrypt_phone,
     verify_password,
     create_access_token,
 )
@@ -20,36 +21,28 @@ router = APIRouter()
 # ================= route for user creation ====================
 @router.post("/register")
 def register(user: UserCreate, db: Session = Depends(get_db)):
+    email_hash = hash_email(user.email)
+    existing = db.query(User).filter(User.hashed_email == email_hash).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="email already registered")
+
     new_user = User(
         username=user.username,
+        full_name=user.full_name,
+        encrypted_email=encrypt_email(user.email),
+        hashed_email=hash_email(user.email),
         hashed_password=hash_password(user.password),
-        encrypted_phone_number=encrypt_phone(user.phone_number),
     )
 
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
     access_token = create_access_token({"sub": user.username})
+
     return {
         "message": "user created",
         "access_token": access_token,
-        "token_type": "bearer",
-    }
-
-    # ============= user login route ================
-    # @router.post("/login")
-    # def login(user: UserLogin, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.username == user.username).first()
-
-    if not db_user:
-        return {"message": "user not found"}
-    if not verify_password(user.password, db_user.hashed_password):
-        return {"message": "invalid password"}
-
-    token = create_access_token({"sub": db_user.username})
-    return {
-        "message": "login successful",
-        "access_token": token,
         "token_type": "bearer",
     }
 

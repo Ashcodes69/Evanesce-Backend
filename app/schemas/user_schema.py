@@ -1,9 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 # ========= User for the batabase =============
 class UserCreate(BaseModel):
     username: str
-    phone_number: str
+    full_name: str
+    email: EmailStr
     password: str
 
 # ============== user for the login ==============
@@ -17,4 +18,4 @@ class UserPublic(BaseModel):
     username: str
 
     class Config:
-        from_attributes: True
+        from_attributes = True
