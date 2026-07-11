@@ -185,3 +185,38 @@ def get_incomming_requests(
             )
 
     return results
+
+
+@router.get("/connections/blocked")
+def blocked_users(
+    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+):
+    connections = (
+        db.query(Connection)
+        .filter(
+            (
+                (Connection.user_a_id == current_user.id)
+                | (Connection.user_b_id == current_user.id)
+            ),
+            Connection.status == "blocked",
+            Connection.blocked_by == current_user.id,
+        )
+        .all()
+    )
+
+    results = []
+    for cnn in connections:
+        other_user_id = (
+            cnn.user_b_id if cnn.user_a_id == current_user.id else cnn.user_a_id
+        )
+        other_user = db.query(User).filter(User.id == other_user_id).first()
+
+        if other_user:
+            results.append(
+                {
+                    "user_id": other_user.id,
+                    "username": other_user.username,
+                    "full_name": other_user.full_name,
+                }
+            )
+    return results
