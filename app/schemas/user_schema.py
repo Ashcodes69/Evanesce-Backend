@@ -16,6 +16,16 @@ class UserLogin(BaseModel):
 class UserPublic(BaseModel):
     id: int
     username: str
+    full_name: str
+
+    class Config:
+        from_attributes = True
+
+class UserSearchResult(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    connection_status: str
 
     class Config:
         from_attributes = True

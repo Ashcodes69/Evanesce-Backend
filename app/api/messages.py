@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
@@ -6,6 +6,7 @@ from app.db.session import get_db
 from app.models.message import Message
 from app.models.user import User
 from app.services.auth_service import get_current_user
+from app.services.connection_service import get_connection
 from app.schemas.message_schema import MessageResponse, ConversationResponse
 
 router = APIRouter()
@@ -18,6 +19,10 @@ def get_messages(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    connection = get_connection(db, current_user.id, user_id)
+    if not connection and connection.status != "accepted":
+        raise HTTPException(status_code=403, detail="you are not connected with this user")
+
     messages = (
         db.query(Message)
         .filter(
@@ -63,6 +68,7 @@ def get_conversations(
             conversations[other_user_id] = {
                 "user_id": user.id,
                 "username": user.username,
+                "full_name": user.full_name,
                 "last_message": msg.content,
                 "created_at": msg.created_at,
                 "unread_msg_count": (

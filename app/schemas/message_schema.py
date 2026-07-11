@@ -20,6 +20,7 @@ class MessageResponse(BaseModel):
 class ConversationResponse(BaseModel):
     user_id: int
     username: str
+    full_name: str
     last_message: str
     created_at: datetime
     unread_msg_count: int

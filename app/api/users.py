@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.user_schema import UserCreate, UserPublic
+from app.schemas.user_schema import UserCreate, UserPublic, UserSearchResult
 from app.core.security import (
     hash_email,
     encrypt_email,
@@ -14,6 +14,7 @@ from app.core.security import (
 )
 from app.api.websocket import active_connection
 from app.services.auth_service import get_current_user
+from app.services.connection_service import get_connection
 
 router = APIRouter()
 
@@ -68,17 +69,42 @@ def login(
 # ==================== get the current logged in user details ============
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):
-    return {"id": current_user.id, "username": current_user.username}
+    return {
+        "id": current_user.id,
+        "username": current_user.username,
+        "full_name": current_user.full_name,
+    }
 
 
 # ===================== route for search a user ================
-@router.get("/users/search/{username}", response_model=UserPublic)
-def search_user(username: str, db: Session = Depends(get_db)):
+@router.get("/users/search/{username}", response_model=UserSearchResult)
+def search_user(
+    username: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     user = db.query(User).filter(User.username == username).first()
 
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
-    return user
+    if user.id == current_user.id:
+        raise HTTPException(status_code=403, detail="you cannot search yourself")
+    
+    connection = get_connection(db, current_user.id, user.id)
+
+    if not connection or connection.status == "blocked":
+        status = "None"
+    elif connection.status == "accepted":
+        status = "accepted"
+    elif connection.status == "pending":
+        status = "pending_sent" if connection.requested_by == current_user.id else "pending_received"
+
+    return {
+        "id": user.id,
+        "username": user.username,
+        "full_name": user.full_name,
+        "connection_status": status
+    }
 
 
 @router.get("/users/{user_id}", response_model=UserPublic)

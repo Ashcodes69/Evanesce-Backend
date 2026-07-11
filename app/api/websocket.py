@@ -6,6 +6,7 @@ from app.db.session import SessionLocal
 from app.models.message import Message
 from app.models.user import User
 from app.core.security import verify_token
+from app.services.connection_service import get_connection
 
 
 router = APIRouter()
@@ -71,12 +72,26 @@ async def websoket_endpoint(websoket: WebSocket):
             data = await websoket.receive_json()
             receiver_id = int(data["receiver_id"])
             event = data.get("type", "message")
+
             if event == "typing":
-                if receiver_id in active_connection:
+                connection = get_connection(db, user_id, receiver_id)
+
+                if (
+                    connection
+                    and connection.status == "accepted"
+                    and receiver_id in active_connection
+                ):
                     receiver_soket = active_connection[receiver_id]
                     await receiver_soket.send_json({"from": user_id, "type": "typing"})
                 continue
             message_text = data["message"]
+
+            connection = get_connection(db, user_id, receiver_id)
+            if not connection or connection.status != "accepted":
+                await websoket.send_json(
+                    {"type": "error", "detail": "you are not connected with this user"}
+                )
+                continue
 
             new_message = Message(
                 sender_id=user_id,
