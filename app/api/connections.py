@@ -7,12 +7,13 @@ from app.models.connection import Connection
 from app.schemas.connection_schema import ConnectionRequest
 from app.services.auth_service import get_current_user
 from app.services.connection_service import get_connection, get_ordered_pair
+from app.api.websocket import active_connection
 
 router = APIRouter()
 
 
 @router.post("/connections/request")
-def send_connection_request(
+async def send_connection_request(
     payload: ConnectionRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -52,11 +53,22 @@ def send_connection_request(
     db.commit()
     db.refresh(new_connection)
 
+    if target_id in active_connection:
+        await active_connection[target_id].send_json(
+            {
+                "type": "connection_request",
+                "connection_id": new_connection.id,
+                "user_id": current_user.id,
+                "username": current_user.username,
+                "full_name": current_user.full_name,
+            }
+        )
+
     return {"message": "Connection request sent", "connection_id": new_connection.id}
 
 
 @router.post("/connections/{connection_id}/accept")
-def accept_connection_request(
+async def accept_connection_request(
     connection_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -77,6 +89,18 @@ def accept_connection_request(
     connection.status = "accepted"
     db.commit()
     db.refresh(connection)
+
+    requester_id = connection.requested_by
+    if requester_id in active_connection:
+        await active_connection[requester_id].send_json(
+            {
+                "type": "connection_accepted",
+                "connection_id": connection.id,
+                "user_id": current_user.id,
+                "username": current_user.username,
+                "full_name": current_user.full_name,
+            }
+        )
 
     return {"message": "Connection accepted", "connection_id": connection.id}
 
@@ -109,7 +133,7 @@ def reject_connection_request(
 
 
 @router.post("/connections/{target_user_id}/block")
-def block_user(
+async def block_user(
     target_user_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -126,6 +150,12 @@ def block_user(
     connection.status = "blocked"
     connection.blocked_by = current_user.id
     db.commit()
+
+    if target_user_id in active_connection:
+        await active_connection[target_user_id].send_json({
+            "type": "connection_blocked",
+            "user_id": current_user.id
+        })
 
     return {"message": "User blocked"}
 
