@@ -1,16 +1,26 @@
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User
-from app.schemas.user_schema import UserCreate, UserPublic, UserSearchResult
+from app.schemas.user_schema import (
+    UserCreate,
+    UserPublic,
+    UserSearchResult,
+    ChangeFullName,
+    ChangeUsername,
+    VerifyResetIdentity,
+    ResetPassword,
+)
 from app.core.security import (
     hash_email,
     encrypt_email,
     hash_password,
     verify_password,
     create_access_token,
+    create_reset_token,
+    verify_reset_token,
 )
 from app.api.websocket import active_connection
 from app.services.auth_service import get_current_user
@@ -80,30 +90,37 @@ def get_me(current_user: User = Depends(get_current_user)):
 @router.get("/users/search/{username}", response_model=UserSearchResult)
 def search_user(
     username: str,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    response.headers["Cache-Control"] = "no-store"
+
     user = db.query(User).filter(User.username == username).first()
 
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
     if user.id == current_user.id:
         raise HTTPException(status_code=403, detail="you cannot search yourself")
-    
+
     connection = get_connection(db, current_user.id, user.id)
 
     if not connection or connection.status == "blocked":
-        status = "None"
+        raise HTTPException(status_code=404, detail="user not found")
     elif connection.status == "accepted":
         status = "accepted"
     elif connection.status == "pending":
-        status = "pending_sent" if connection.requested_by == current_user.id else "pending_received"
+        status = (
+            "pending_sent"
+            if connection.requested_by == current_user.id
+            else "pending_received"
+        )
 
     return {
         "id": user.id,
         "username": user.username,
         "full_name": user.full_name,
-        "connection_status": status
+        "connection_status": status,
     }
 
 
@@ -128,3 +145,59 @@ def get_user_status(user_id: int):
 def get_last_seen(user_id: int, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.id == user_id).first()
     return {"last_seen": user.last_seen}
+
+
+@router.put("/me/full-name")
+def change_full_name(
+    payload: ChangeFullName,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    current_user.full_name = payload.full_name
+    db.commit()
+    return {"message": "full name changed"}
+
+
+@router.put("/me/username")
+def change_username(
+    payload: ChangeUsername,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if not verify_password(payload.password, current_user.hashed_password):
+        raise HTTPException(status_code=401, detail="Incorrect password")
+
+    existing = db.query(User).filter(User.username == payload.new_username).first()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="username already exists")
+
+    current_user.username = payload.new_username
+    db.commit()
+    return {"message": "username updated please log in again"}
+
+
+@router.post("/auth/verify-reset-identity")
+def verify_reset_identity(payload: VerifyResetIdentity, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.username == payload.username).first()
+
+    if not user or user.hashed_email != hash_email(payload.email):
+        raise HTTPException(status_code=400, detail="inncorrect username or email")
+
+    reset_token = create_reset_token(user.username)
+    return {"reset_token": reset_token}
+
+
+@router.post("/auth/reset-password")
+def reset_password(payload: ResetPassword, db: Session = Depends(get_db)):
+    username = verify_reset_token(payload.reset_token)
+    if not username:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="user not found")
+
+    user.hashed_password = hash_password(payload.new_password)
+    db.commit()
+    return{"message": "Password updated Please log in again"}

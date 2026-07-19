@@ -78,3 +78,19 @@ def verify_token(token: str):
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
+
+
+def create_reset_token(username: str):
+    to_encode = {"sub": username, "purpose": "password_reset"}
+    expire = datetime.now(timezone.utc) + timedelta(minutes=10)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, ALGORITHM)
+
+def verify_reset_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("purpose") != "password_reset":
+            return None
+        return payload.get("sub")
+    except JWTError:
+        return None
