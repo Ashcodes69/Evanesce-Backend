@@ -105,16 +105,18 @@ def search_user(
 
     connection = get_connection(db, current_user.id, user.id)
 
-    if not connection or connection.status == "blocked":
+    if connection and connection.status == "blocked":
         raise HTTPException(status_code=404, detail="user not found")
-    elif connection.status == "accepted":
+    elif connection and connection.status == "accepted":
         status = "accepted"
-    elif connection.status == "pending":
+    elif connection and connection.status == "pending":
         status = (
             "pending_sent"
             if connection.requested_by == current_user.id
             else "pending_received"
         )
+    else:
+        status = "none"
 
     return {
         "id": user.id,

@@ -7,6 +7,7 @@ from app.models.message import Message
 from app.models.user import User
 from app.core.security import verify_token
 from app.services.connection_service import get_connection
+from app.services.massege_service import wake_sweeper
 
 
 router = APIRouter()
@@ -85,6 +86,7 @@ async def websoket_endpoint(websoket: WebSocket):
                     await receiver_soket.send_json({"from": user_id, "type": "typing"})
                 continue
             message_text = data["message"]
+            client_id = data.get("client_id")
 
             connection = get_connection(db, user_id, receiver_id)
             if not connection or connection.status != "accepted":
@@ -102,6 +104,7 @@ async def websoket_endpoint(websoket: WebSocket):
             db.add(new_message)
             db.commit()
             db.refresh(new_message)
+            wake_sweeper()
 
             if receiver_id in active_connection:
                 new_message.status = "delivered"
@@ -119,6 +122,16 @@ async def websoket_endpoint(websoket: WebSocket):
                         "created_at": str(new_message.created_at),
                     }
                 )
+
+            await websoket.send_json(
+                {
+                    "type": "message_ack",
+                    "client_id": client_id,
+                    "message_id": new_message.id,
+                    "status": new_message.status,
+                    "created_at": str(new_message.created_at),
+                }
+            )
 
     except WebSocketDisconnect:
         user.last_seen = datetime.now(timezone.utc)

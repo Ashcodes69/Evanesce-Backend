@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -8,6 +10,7 @@ from app.models.message import Message
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.services.connection_service import get_connection
+from app.services.massege_service import wake_sweeper
 from app.schemas.message_schema import MessageResponse, ConversationResponse
 
 router = APIRouter()
@@ -21,7 +24,7 @@ def get_messages(
     current_user: User = Depends(get_current_user),
 ):
     connection = get_connection(db, current_user.id, user_id)
-    if not connection and connection.status != "accepted":
+    if not connection or connection.status != "accepted":
         raise HTTPException(
             status_code=403, detail="you are not connected with this user"
         )
@@ -29,7 +32,11 @@ def get_messages(
     messages = (
         db.query(Message)
         .filter(
-            ((Message.sender_id == current_user.id) & (Message.receiver_id == user_id))
+            (
+                (Message.sender_id == current_user.id)
+                & (Message.receiver_id == user_id)
+                & (Message.hidden_from_sender == False)
+            )
             | (
                 (Message.sender_id == user_id)
                 & (Message.receiver_id == current_user.id)
@@ -98,10 +105,18 @@ def get_conversations(
         }
 
     sorted_conversations = sorted(
-        conversations.values(), key=lambda c: c["created_at"], reverse=True
+        conversations.values(),
+        # key=lambda c: c["created_at"],
+        key=lambda c: (
+            c["created_at"].replace(tzinfo=timezone.utc)
+            if c["created_at"].tzinfo is None
+            else c["created_at"]
+        ),
+        reverse=True,
     )
 
     return sorted_conversations
+
 
 @router.put("/messages/seen/{user_id}")
 def mark_messages_seen(
@@ -114,7 +129,7 @@ def mark_messages_seen(
         .filter(
             Message.sender_id == user_id,
             Message.receiver_id == current_user.id,
-            Message.status == "delivered",
+            Message.status.in_(["sent", "delivered"]),
         )
         .order_by(Message.created_at.asc())
         .all()
@@ -125,7 +140,9 @@ def mark_messages_seen(
 
     for msg in messages:
         msg.status = "seen"
+        msg.seen_at = datetime.now()
 
     db.commit()
+    wake_sweeper()
 
     return {"message": "message updated", "count": len(messages)}
