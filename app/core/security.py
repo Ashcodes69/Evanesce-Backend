@@ -1,13 +1,13 @@
-from passlib.context import CryptContext
-from cryptography.fernet import Fernet
-import os
-from jose import jwt, JWTError
-from datetime import datetime, timedelta, timezone
-from fastapi.security import OAuth2PasswordBearer
-import hmac
 import hashlib
+import hmac
+import os
+from datetime import datetime, timedelta, timezone
 
+from cryptography.fernet import Fernet
 from dotenv import load_dotenv
+from fastapi.security import OAuth2PasswordBearer
+from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 # ================passward hashing ====================
 
@@ -86,10 +86,28 @@ def create_reset_token(username: str):
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, SECRET_KEY, ALGORITHM)
 
+
 def verify_reset_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         if payload.get("purpose") != "password_reset":
+            return None
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
+def create_signup_token(email: str):
+    to_encode = {"sub": email, "purpose": "signup_verified"}
+    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, ALGORITHM)
+
+
+def verify_signup_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        if payload.get("purpose") != "signup_verified":
             return None
         return payload.get("sub")
     except JWTError:

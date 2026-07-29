@@ -1,4 +1,7 @@
 .env
+test.js
+test.py
+pyproject.toml
 
 you/
 venv/

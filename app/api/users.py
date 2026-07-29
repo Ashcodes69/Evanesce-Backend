@@ -1,67 +1,114 @@
-from fastapi.security import OAuth2PasswordRequestForm
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
+from app.api.websocket import active_connection
+from app.core.security import (
+    create_access_token,
+    create_reset_token,
+    encrypt_email,
+    hash_email,
+    hash_password,
+    verify_password,
+    verify_reset_token,
+    create_signup_token,
+    verify_signup_token,
+)
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.user_schema import (
-    UserCreate,
-    UserPublic,
-    UserSearchResult,
     ChangeFullName,
     ChangeUsername,
-    VerifyResetIdentity,
     ResetPassword,
+    UserPublic,
+    UserSearchResult,
+    VerifyResetIdentity,
+    RequestSignupOtp,
+    VerifySignupOtp,
+    CheckUsername,
+    CompleteSignup,
 )
-from app.core.security import (
-    hash_email,
-    encrypt_email,
-    hash_password,
-    verify_password,
-    create_access_token,
-    create_reset_token,
-    verify_reset_token,
-)
-from app.api.websocket import active_connection
 from app.services.auth_service import get_current_user
 from app.services.connection_service import get_connection
+from app.services.otp_service import can_request_otp, send_otp, verify_otp
 
 router = APIRouter()
 
 
 # ================= route for user creation ====================
-@router.post("/register")
-def register(user: UserCreate, db: Session = Depends(get_db)):
-    email_hash = hash_email(user.email)
+@router.post("/auth/signup/request-otp")
+def request_signup_otp(payload: RequestSignupOtp, db: Session = Depends(get_db)):
+    email_hash = hash_email(payload.email)
     existing = db.query(User).filter(User.hashed_email == email_hash).first()
+
     if existing:
         raise HTTPException(status_code=400, detail="email already registered")
 
-    new_user = User(
-        username=user.username,
-        full_name=user.full_name,
-        encrypted_email=encrypt_email(user.email),
-        hashed_email=hash_email(user.email),
-        hashed_password=hash_password(user.password),
-    )
+    if not can_request_otp(db, payload.email, purpose="signup"):
+        raise HTTPException(status_code=403, detail="please wait before requesting another code")
 
+    send_otp(db, payload.email, purpose="signup")
+
+    return {"message": "verification code sent"}
+
+
+@router.post("/auth/signup/verify-otp")
+def verify_signup_otp(payload: VerifySignupOtp, db: Session = Depends(get_db)):
+    is_valid = verify_otp(db, payload.email, payload.code, purpose="signup")
+
+    if not is_valid:
+        raise HTTPException(status_code=400, detail="Invalid or Expired code")
+
+    signup_token = create_signup_token(payload.email)
+    return {"signup_token": signup_token}
+
+
+@router.post("/auth/signup/check-username")
+def check_username(payload: CheckUsername, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.username == payload.username).first()
+
+    if existing:
+        raise HTTPException(status_code=400, detail="username already exists")
+
+    return {"available": True}
+
+
+@router.post("/auth/signup/complete")
+def complete_signup(payload: CompleteSignup, db: Session = Depends(get_db)):
+    email = verify_signup_token(payload.signup_token)
+    if not email:
+        raise HTTPException(status_code=400, detail="invalid or expired signup session")
+
+    existing_email = db.query(User).filter(User.hashed_email == hash_email(email)).first()
+    if existing_email:
+        raise HTTPException(status_code=400, detail="email already registered")
+
+    existing_username = db.query(User).filter(User.username == payload.username).first()
+    if existing_username:
+        raise HTTPException(status_code=400, detail="username already taken")
+
+    new_user = User(
+        username=payload.username,
+        full_name=payload.full_name,
+        hashed_password=hash_password(payload.password),
+        encrypted_email=encrypt_email(email),
+        hashed_email=hash_email(email),
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
 
-    access_token = create_access_token({"sub": user.username})
+    access_token = create_access_token({"sub": new_user.username})
 
     return {
-        "message": "user created",
+        "message": "account created",
         "access_token": access_token,
         "token_type": "bearer",
     }
 
 
 @router.post("/login")
-def login(
-    form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)
-):
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
 
     user = db.query(User).filter(User.username == form_data.username).first()
 
@@ -111,9 +158,7 @@ def search_user(
         status = "accepted"
     elif connection and connection.status == "pending":
         status = (
-            "pending_sent"
-            if connection.requested_by == current_user.id
-            else "pending_received"
+            "pending_sent" if connection.requested_by == current_user.id else "pending_received"
         )
     else:
         status = "none"
@@ -202,4 +247,4 @@ def reset_password(payload: ResetPassword, db: Session = Depends(get_db)):
 
     user.hashed_password = hash_password(payload.new_password)
     db.commit()
-    return{"message": "Password updated Please log in again"}
+    return {"message": "Password updated Please log in again"}

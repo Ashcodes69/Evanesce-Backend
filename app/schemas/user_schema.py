@@ -1,18 +1,31 @@
 from pydantic import BaseModel, EmailStr
 
-# ========= User for the batabase =============
-class UserCreate(BaseModel):
-    username: str
-    full_name: str
-    email: EmailStr
-    password: str
 
-# ============== user for the login ==============
+class RequestSignupOtp(BaseModel):
+    email: EmailStr
+
+
+class VerifySignupOtp(BaseModel):
+    email: EmailStr
+    code: str
+
+
+class CheckUsername(BaseModel):
+    username: str
+
+
+class CompleteSignup(BaseModel):
+    signup_token: str
+    username: str
+    password: str
+    full_name: str
+
+
 class UserLogin(BaseModel):
     username: str
     password: str
 
-# ============= user for searching ================
+
 class UserPublic(BaseModel):
     id: int
     username: str
@@ -20,6 +33,7 @@ class UserPublic(BaseModel):
 
     class Config:
         from_attributes = True
+
 
 class UserSearchResult(BaseModel):
     id: int
@@ -34,13 +48,16 @@ class UserSearchResult(BaseModel):
 class ChangeFullName(BaseModel):
     full_name: str
 
+
 class ChangeUsername(BaseModel):
     password: str
     new_username: str
 
+
 class VerifyResetIdentity(BaseModel):
     username: str
     email: EmailStr
+
 
 class ResetPassword(BaseModel):
     reset_token: str
