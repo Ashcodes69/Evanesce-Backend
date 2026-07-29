@@ -12,6 +12,7 @@ from app.api.websocket import router as websoket_router
 from app.db.database import Base, engine
 
 from app.services.massege_service import run_disappear_sweeper
+from app.services.otp_service import run_otp_cleanup_sweeper
 
 Base.metadata.create_all(bind=engine)
 
@@ -40,3 +41,4 @@ app.add_middleware(
 @app.on_event("startup")
 async def start_background_tasks():
     asyncio.create_task(run_disappear_sweeper())
+    asyncio.create_task(run_otp_cleanup_sweeper())

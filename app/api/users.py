@@ -27,25 +27,39 @@ from app.schemas.user_schema import (
     VerifySignupOtp,
     CheckUsername,
     CompleteSignup,
+    VerifyResetOtp,
 )
 from app.services.auth_service import get_current_user
 from app.services.connection_service import get_connection
-from app.services.otp_service import can_request_otp, send_otp, verify_otp
+from app.services.otp_service import (
+    can_request_otp,
+    send_otp,
+    verify_otp,
+)
 
 router = APIRouter()
 
 
 # ================= route for user creation ====================
 @router.post("/auth/signup/request-otp")
-def request_signup_otp(payload: RequestSignupOtp, db: Session = Depends(get_db)):
+def request_signup_otp(
+    payload: RequestSignupOtp, db: Session = Depends(get_db)
+):
     email_hash = hash_email(payload.email)
-    existing = db.query(User).filter(User.hashed_email == email_hash).first()
+    existing = (
+        db.query(User).filter(User.hashed_email == email_hash).first()
+    )
 
     if existing:
-        raise HTTPException(status_code=400, detail="email already registered")
+        raise HTTPException(
+            status_code=400, detail="email already registered"
+        )
 
     if not can_request_otp(db, payload.email, purpose="signup"):
-        raise HTTPException(status_code=403, detail="please wait before requesting another code")
+        raise HTTPException(
+            status_code=403,
+            detail="please wait before requesting another code",
+        )
 
     send_otp(db, payload.email, purpose="signup")
 
@@ -53,39 +67,70 @@ def request_signup_otp(payload: RequestSignupOtp, db: Session = Depends(get_db))
 
 
 @router.post("/auth/signup/verify-otp")
-def verify_signup_otp(payload: VerifySignupOtp, db: Session = Depends(get_db)):
-    is_valid = verify_otp(db, payload.email, payload.code, purpose="signup")
+def verify_signup_otp(
+    payload: VerifySignupOtp, db: Session = Depends(get_db)
+):
+    is_valid = verify_otp(
+        db, payload.email, payload.code, purpose="signup"
+    )
 
     if not is_valid:
-        raise HTTPException(status_code=400, detail="Invalid or Expired code")
+        raise HTTPException(
+            status_code=400, detail="Invalid or Expired code"
+        )
 
     signup_token = create_signup_token(payload.email)
     return {"signup_token": signup_token}
 
 
 @router.post("/auth/signup/check-username")
-def check_username(payload: CheckUsername, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.username == payload.username).first()
+def check_username(
+    payload: CheckUsername, db: Session = Depends(get_db)
+):
+    existing = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
 
     if existing:
-        raise HTTPException(status_code=400, detail="username already exists")
+        raise HTTPException(
+            status_code=400, detail="username already exists"
+        )
 
     return {"available": True}
 
 
 @router.post("/auth/signup/complete")
-def complete_signup(payload: CompleteSignup, db: Session = Depends(get_db)):
+def complete_signup(
+    payload: CompleteSignup, db: Session = Depends(get_db)
+):
     email = verify_signup_token(payload.signup_token)
     if not email:
-        raise HTTPException(status_code=400, detail="invalid or expired signup session")
+        raise HTTPException(
+            status_code=400,
+            detail="invalid or expired signup session",
+        )
 
-    existing_email = db.query(User).filter(User.hashed_email == hash_email(email)).first()
+    existing_email = (
+        db.query(User)
+        .filter(User.hashed_email == hash_email(email))
+        .first()
+    )
     if existing_email:
-        raise HTTPException(status_code=400, detail="email already registered")
+        raise HTTPException(
+            status_code=400, detail="email already registered"
+        )
 
-    existing_username = db.query(User).filter(User.username == payload.username).first()
+    existing_username = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
     if existing_username:
-        raise HTTPException(status_code=400, detail="username already taken")
+        raise HTTPException(
+            status_code=400, detail="username already taken"
+        )
 
     new_user = User(
         username=payload.username,
@@ -108,22 +153,33 @@ def complete_signup(payload: CompleteSignup, db: Session = Depends(get_db)):
 
 
 @router.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
 
-    user = db.query(User).filter(User.username == form_data.username).first()
+    user = (
+        db.query(User)
+        .filter(User.username == form_data.username)
+        .first()
+    )
 
     if not user:
-        raise HTTPException(status_code=401, detail="Invalid username")
+        raise HTTPException(
+            status_code=401, detail="Invalid username"
+        )
 
     if not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Invalid password")
+        raise HTTPException(
+            status_code=401, detail="Invalid password"
+        )
 
     access_token = create_access_token({"sub": user.username})
 
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-# ==================== get the current logged in user details ============
+# ==================== get the current logged in user details ========
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):
     return {
@@ -134,7 +190,9 @@ def get_me(current_user: User = Depends(get_current_user)):
 
 
 # ===================== route for search a user ================
-@router.get("/users/search/{username}", response_model=UserSearchResult)
+@router.get(
+    "/users/search/{username}", response_model=UserSearchResult
+)
 def search_user(
     username: str,
     response: Response,
@@ -148,7 +206,9 @@ def search_user(
     if user is None:
         raise HTTPException(status_code=404, detail="user not found")
     if user.id == current_user.id:
-        raise HTTPException(status_code=403, detail="you cannot search yourself")
+        raise HTTPException(
+            status_code=403, detail="you cannot search yourself"
+        )
 
     connection = get_connection(db, current_user.id, user.id)
 
@@ -158,7 +218,9 @@ def search_user(
         status = "accepted"
     elif connection and connection.status == "pending":
         status = (
-            "pending_sent" if connection.requested_by == current_user.id else "pending_received"
+            "pending_sent"
+            if connection.requested_by == current_user.id
+            else "pending_received"
         )
     else:
         status = "none"
@@ -179,7 +241,7 @@ def get_user_by_id(user_id: int, db: Session = Depends(get_db)):
     return user
 
 
-# ================ route to check the users online/ofline status ==========
+# ================ route to check the users online/offline status ==========
 @router.get("/users/status/{user_id}")
 def get_user_status(user_id: int):
     if user_id in active_connection:
@@ -211,13 +273,23 @@ def change_username(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not verify_password(payload.password, current_user.hashed_password):
-        raise HTTPException(status_code=401, detail="Incorrect password")
+    if not verify_password(
+        payload.password, current_user.hashed_password
+    ):
+        raise HTTPException(
+            status_code=401, detail="Incorrect password"
+        )
 
-    existing = db.query(User).filter(User.username == payload.new_username).first()
+    existing = (
+        db.query(User)
+        .filter(User.username == payload.new_username)
+        .first()
+    )
 
     if existing:
-        raise HTTPException(status_code=400, detail="username already exists")
+        raise HTTPException(
+            status_code=400, detail="username already exists"
+        )
 
     current_user.username = payload.new_username
     db.commit()
@@ -225,21 +297,58 @@ def change_username(
 
 
 @router.post("/auth/verify-reset-identity")
-def verify_reset_identity(payload: VerifyResetIdentity, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.username == payload.username).first()
+def verify_reset_identity(
+    payload: VerifyResetIdentity, db: Session = Depends(get_db)
+):
+    user = (
+        db.query(User)
+        .filter(User.username == payload.username)
+        .first()
+    )
 
     if not user or user.hashed_email != hash_email(payload.email):
-        raise HTTPException(status_code=400, detail="inncorrect username or email")
+        raise HTTPException(
+            status_code=400, detail="Invalid username or email"
+        )
 
-    reset_token = create_reset_token(user.username)
+    if not can_request_otp(
+        db, payload.email, purpose="password_reset"
+    ):
+        raise HTTPException(
+            status_code=429,
+            detail="please wait before requesting another code",
+        )
+
+    send_otp(db, payload.email, purpose="password_reset")
+
+    return {"message": "verification code sent"}
+
+
+@router.post("/auth/verify-reset-otp")
+def verify_reset_otp(
+    payload: VerifyResetOtp, db: Session = Depends(get_db)
+):
+    is_valid = verify_otp(
+        db, payload.email, payload.code, purpose="password_reset"
+    )
+    if not is_valid:
+        raise HTTPException(
+            status_code=400, detail="invalid or expired code"
+        )
+
+    reset_token = create_reset_token(payload.username)
     return {"reset_token": reset_token}
 
 
 @router.post("/auth/reset-password")
-def reset_password(payload: ResetPassword, db: Session = Depends(get_db)):
+def reset_password(
+    payload: ResetPassword, db: Session = Depends(get_db)
+):
     username = verify_reset_token(payload.reset_token)
     if not username:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+        raise HTTPException(
+            status_code=400, detail="Invalid or expired reset link"
+        )
 
     user = db.query(User).filter(User.username == username).first()
     if not user:

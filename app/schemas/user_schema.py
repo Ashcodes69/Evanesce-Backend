@@ -54,6 +54,12 @@ class ChangeUsername(BaseModel):
     new_username: str
 
 
+class VerifyResetOtp(BaseModel):
+    username: str
+    email: EmailStr
+    code: str
+
+
 class VerifyResetIdentity(BaseModel):
     username: str
     email: EmailStr
