@@ -29,7 +29,9 @@ EMAIL_HASH_SECRET = os.getenv("EMAIL_HASH_SECRET").encode()
 
 def hash_email(email: str):
     return hmac.new(
-        EMAIL_HASH_SECRET, email.lower().strip().encode(), hashlib.sha256
+        EMAIL_HASH_SECRET,
+        email.lower().strip().encode(),
+        hashlib.sha256,
     ).hexdigest()
 
 
@@ -51,12 +53,16 @@ def verify_password(plain_password: str, hashed_password: str):
 # ================== create access token ==========================
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(
+    os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES")
+)
 
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
+    )
 
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, ALGORITHM)
@@ -66,7 +72,9 @@ def create_access_token(data: dict):
 
 def verify_token(token: str):
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM]
+        )
         username = payload.get("sub")
 
         if username is None:
@@ -89,7 +97,9 @@ def create_reset_token(username: str):
 
 def verify_reset_token(token: str):
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM]
+        )
         if payload.get("purpose") != "password_reset":
             return None
         return payload.get("sub")
@@ -106,9 +116,29 @@ def create_signup_token(email: str):
 
 def verify_signup_token(token: str):
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(
+            token, SECRET_KEY, algorithms=[ALGORITHM]
+        )
         if payload.get("purpose") != "signup_verified":
             return None
         return payload.get("sub")
     except JWTError:
         return None
+
+
+# =============== TO encrypt and Decrypt msg ===================
+
+MESSAGE_KEY = os.getenv("MESSAGE_ENCRYPTION_KEY")
+message_cipher = Fernet(
+    MESSAGE_KEY.encode()
+    if isinstance(MESSAGE_KEY, str)
+    else MESSAGE_KEY
+)
+
+
+def encrypt_message(content: str) -> str:
+    return message_cipher.encrypt(content.encode()).decode()
+
+
+def decrypt_message(encrypt_content: str) -> str:
+    return message_cipher.decrypt(encrypt_content.encode()).decode()

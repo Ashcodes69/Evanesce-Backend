@@ -9,12 +9,12 @@ from app.api.connections import router as connection_router
 from app.api.messages import router as message_router
 from app.api.users import router as user_router
 from app.api.websocket import router as websoket_router
-from app.db.database import Base, engine
+# from app.db.database import Base, engine
 
 from app.services.massege_service import run_disappear_sweeper
 from app.services.otp_service import run_otp_cleanup_sweeper
 
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 

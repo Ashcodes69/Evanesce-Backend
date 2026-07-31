@@ -5,9 +5,12 @@ from sqlalchemy.orm import Session
 from app.db.session import SessionLocal
 from app.models.message import Message
 from app.models.user import User
-from app.core.security import verify_token
+from app.core.security import verify_token, encrypt_message
 from app.services.connection_service import get_connection
-from app.services.massege_service import wake_sweeper
+from app.services.massege_service import (
+    wake_sweeper,
+    calculate_disappear_delay,
+)
 
 
 router = APIRouter()
@@ -45,12 +48,18 @@ async def websoket_endpoint(websoket: WebSocket):
     for other_id, other_socket in active_connection.items():
         if other_id != user_id:
             await other_socket.send_json(
-                {"type": "presence", "user_id": user_id, "status": "online"}
+                {
+                    "type": "presence",
+                    "user_id": user_id,
+                    "status": "online",
+                }
             )
 
     pending_messages = (
         db.query(Message)
-        .filter(Message.receiver_id == user_id, Message.status == "sent")
+        .filter(
+            Message.receiver_id == user_id, Message.status == "sent"
+        )
         .order_by(Message.created_at.asc())
         .all()
     )
@@ -83,7 +92,9 @@ async def websoket_endpoint(websoket: WebSocket):
                     and receiver_id in active_connection
                 ):
                     receiver_soket = active_connection[receiver_id]
-                    await receiver_soket.send_json({"from": user_id, "type": "typing"})
+                    await receiver_soket.send_json(
+                        {"from": user_id, "type": "typing"}
+                    )
                 continue
             message_text = data["message"]
             client_id = data.get("client_id")
@@ -91,16 +102,24 @@ async def websoket_endpoint(websoket: WebSocket):
             connection = get_connection(db, user_id, receiver_id)
             if not connection or connection.status != "accepted":
                 await websoket.send_json(
-                    {"type": "error", "detail": "you are not connected with this user"}
+                    {
+                        "type": "error",
+                        "detail": "you are not connected with this user",
+                    }
                 )
                 continue
+
+            delay_seconds = calculate_disappear_delay(message_text)
+            encrypted_content = encrypt_message(message_text)
 
             new_message = Message(
                 sender_id=user_id,
                 receiver_id=receiver_id,
-                content=message_text,
+                content=encrypted_content,
                 status="sent",
+                disappear_delay_seconds=delay_seconds,
             )
+
             db.add(new_message)
             db.commit()
             db.refresh(new_message)

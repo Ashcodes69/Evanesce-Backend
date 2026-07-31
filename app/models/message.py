@@ -1,4 +1,13 @@
-from sqlalchemy import Column, Integer, ForeignKey, Text, DateTime, String, Boolean, func
+from sqlalchemy import (
+    Column,
+    Integer,
+    ForeignKey,
+    Text,
+    DateTime,
+    String,
+    Boolean,
+    func,
+)
 from app.db.database import Base
 from datetime import datetime, timezone
 
@@ -15,7 +24,16 @@ class Message(Base):
 
     status = Column(String, default="sent")
 
-    created_at = Column(DateTime, server_default=func.now(), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        default=lambda: datetime.now(timezone.utc),
+    )
 
     seen_at = Column(DateTime(timezone=True), nullable=True)
-    hidden_from_sender = Column(Boolean, nullable=False, default=False)
+    hidden_from_sender = Column(
+        Boolean, nullable=False, default=False
+    )
+    disappear_delay_seconds = Column(
+        Integer, nullable=False, default=5
+    )
