@@ -34,6 +34,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://evanesce.vercel.app",
+        "https://evanesce-v2.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
