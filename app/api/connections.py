@@ -6,7 +6,10 @@ from app.models.user import User
 from app.models.connection import Connection
 from app.schemas.connection_schema import ConnectionRequest
 from app.services.auth_service import get_current_user
-from app.services.connection_service import get_connection, get_ordered_pair
+from app.services.connection_service import (
+    get_connection,
+    get_ordered_pair,
+)
 from app.api.websocket import active_connection
 
 router = APIRouter()
@@ -22,7 +25,8 @@ async def send_connection_request(
 
     if target_id == current_user.id:
         raise HTTPException(
-            status_code=400, detail="you cannot send request to yourself"
+            status_code=400,
+            detail="you cannot send request to yourself",
         )
 
     target_user = db.query(User).filter(User.id == target_id).first()
@@ -34,13 +38,21 @@ async def send_connection_request(
 
     if existing:
         if existing.status == "accepted":
-            raise HTTPException(status_code=400, detail="you are already connected")
+            raise HTTPException(
+                status_code=400, detail="you are already connected"
+            )
         if existing.status == "pending":
-            raise HTTPException(status_code=400, detail="A request is already pending")
+            raise HTTPException(
+                status_code=400, detail="A request is already pending"
+            )
         if existing.status == "blocked":
-            raise HTTPException(status_code=404, detail="user not found")
+            raise HTTPException(
+                status_code=404, detail="user not found"
+            )
 
-    user_a_id, user_b_id = get_ordered_pair(current_user.id, target_id)
+    user_a_id, user_b_id = get_ordered_pair(
+        current_user.id, target_id
+    )
 
     new_connection = Connection(
         user_a_id=user_a_id,
@@ -64,7 +76,10 @@ async def send_connection_request(
             }
         )
 
-    return {"message": "Connection request sent", "connection_id": new_connection.id}
+    return {
+        "message": "Connection request sent",
+        "connection_id": new_connection.id,
+    }
 
 
 @router.post("/connections/{connection_id}/accept")
@@ -73,18 +88,32 @@ async def accept_connection_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    connection = db.query(Connection).filter(Connection.id == connection_id).first()
+    connection = (
+        db.query(Connection)
+        .filter(Connection.id == connection_id)
+        .first()
+    )
 
     if not connection:
-        raise HTTPException(status_code=404, detail="request not found")
+        raise HTTPException(
+            status_code=404, detail="request not found"
+        )
     if connection.requested_by == current_user.id:
         raise HTTPException(
-            status_code=403, detail="you cannot accept your own request"
+            status_code=403,
+            detail="you cannot accept your own request",
         )
-    if current_user.id not in (connection.user_a_id, connection.user_b_id):
-        raise HTTPException(status_code=403, detail="Not authorized for this request")
+    if current_user.id not in (
+        connection.user_a_id,
+        connection.user_b_id,
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized for this request"
+        )
     if connection.status != "pending":
-        raise HTTPException(status_code=400, detail="this status is no longer pending")
+        raise HTTPException(
+            status_code=400, detail="this status is no longer pending"
+        )
 
     connection.status = "accepted"
     db.commit()
@@ -102,7 +131,10 @@ async def accept_connection_request(
             }
         )
 
-    return {"message": "Connection accepted", "connection_id": connection.id}
+    return {
+        "message": "Connection accepted",
+        "connection_id": connection.id,
+    }
 
 
 @router.post("/connections/{connection_id}/reject")
@@ -111,18 +143,33 @@ def reject_connection_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    connection = db.query(Connection).filter(Connection.id == connection_id).first()
+    connection = (
+        db.query(Connection)
+        .filter(Connection.id == connection_id)
+        .first()
+    )
 
     if not connection:
-        raise HTTPException(status_code=404, detail="request not found")
+        raise HTTPException(
+            status_code=404, detail="request not found"
+        )
     if connection.requested_by == current_user.id:
         raise HTTPException(
-            status_code=403, detail="You cannot reject your own request"
+            status_code=403,
+            detail="You cannot reject your own request",
         )
-    if current_user.id not in (connection.user_a_id, connection.user_b_id):
-        raise HTTPException(status_code=403, detail="Not authorized for this request")
+    if current_user.id not in (
+        connection.user_a_id,
+        connection.user_b_id,
+    ):
+        raise HTTPException(
+            status_code=403, detail="Not authorized for this request"
+        )
     if connection.status != "pending":
-        raise HTTPException(status_code=400, detail="This request is no longer pending")
+        raise HTTPException(
+            status_code=400,
+            detail="This request is no longer pending",
+        )
 
     connection.status = "blocked"
     connection.blocked_by = current_user.id
@@ -141,8 +188,13 @@ async def block_user(
     connection = get_connection(db, current_user.id, target_user_id)
 
     if not connection:
-        raise HTTPException(status_code=404, detail="No connection with this user")
-    if current_user.id not in (connection.user_a_id, connection.user_b_id):
+        raise HTTPException(
+            status_code=404, detail="No connection with this user"
+        )
+    if current_user.id not in (
+        connection.user_a_id,
+        connection.user_b_id,
+    ):
         raise HTTPException(status_code=403, detail="not authorized")
     if connection.status == "blocked":
         raise HTTPException(status_code=400, detail="Already blocked")
@@ -152,10 +204,9 @@ async def block_user(
     db.commit()
 
     if target_user_id in active_connection:
-        await active_connection[target_user_id].send_json({
-            "type": "connection_blocked",
-            "user_id": current_user.id
-        })
+        await active_connection[target_user_id].send_json(
+            {"type": "connection_blocked", "user_id": current_user.id}
+        )
 
     return {"message": "User blocked"}
 
@@ -169,13 +220,22 @@ def unblock_user(
     connection = get_connection(db, current_user.id, target_user_id)
 
     if not connection:
-        raise HTTPException(status_code=404, detail="No connection with this user")
-    if current_user.id not in (connection.user_a_id, connection.user_b_id):
+        raise HTTPException(
+            status_code=404, detail="No connection with this user"
+        )
+    if current_user.id not in (
+        connection.user_a_id,
+        connection.user_b_id,
+    ):
         raise HTTPException(status_code=403, detail="not authorized")
     if connection.status != "blocked":
-        raise HTTPException(status_code=400, detail="this user is not blocked")
+        raise HTTPException(
+            status_code=400, detail="this user is not blocked"
+        )
     if connection.blocked_by != current_user.id:
-        raise HTTPException(status_code=403, detail="you did not blocked this user")
+        raise HTTPException(
+            status_code=403, detail="you did not blocked this user"
+        )
 
     db.delete(connection)
     db.commit()
@@ -185,7 +245,8 @@ def unblock_user(
 
 @router.get("/connections/requests/incoming")
 def get_incomming_requests(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     connections = (
         db.query(Connection)
@@ -202,8 +263,14 @@ def get_incomming_requests(
     results = []
 
     for cnn in connections:
-        other_id = cnn.user_b_id if cnn.user_a_id == current_user.id else cnn.user_a_id
-        other_user = db.query(User).filter(User.id == other_id).first()
+        other_id = (
+            cnn.user_b_id
+            if cnn.user_a_id == current_user.id
+            else cnn.user_a_id
+        )
+        other_user = (
+            db.query(User).filter(User.id == other_id).first()
+        )
         if other_user:
             results.append(
                 {
@@ -219,7 +286,8 @@ def get_incomming_requests(
 
 @router.get("/connections/blocked")
 def blocked_users(
-    db: Session = Depends(get_db), current_user: User = Depends(get_current_user)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     connections = (
         db.query(Connection)
@@ -237,9 +305,13 @@ def blocked_users(
     results = []
     for cnn in connections:
         other_user_id = (
-            cnn.user_b_id if cnn.user_a_id == current_user.id else cnn.user_a_id
+            cnn.user_b_id
+            if cnn.user_a_id == current_user.id
+            else cnn.user_a_id
         )
-        other_user = db.query(User).filter(User.id == other_user_id).first()
+        other_user = (
+            db.query(User).filter(User.id == other_user_id).first()
+        )
 
         if other_user:
             results.append(
