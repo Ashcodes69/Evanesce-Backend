@@ -2,6 +2,7 @@
 test.js
 test.py
 pyproject.toml
+.dev_storage/
 
 you/
 venv/
