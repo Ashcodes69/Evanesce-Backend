@@ -19,6 +19,7 @@ from app.models.user import User
 from app.models.message import Message
 from app.models.connection import Connection
 from app.models.otp import OtpCode
+from app.models.file_transfer import FileTransfer
 
 config = context.config
 

@@ -6,11 +6,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import app.models
 from app.api.connections import router as connection_router
+from app.api.files import router as file_router
 from app.api.messages import router as message_router
 from app.api.users import router as user_router
 from app.api.websocket import router as websoket_router
-# from app.db.database import Base, engine
+from app.services.file_service import run_file_cleanup_sweeper
 
+# from app.db.database import Base, engine
 from app.services.massege_service import run_disappear_sweeper
 from app.services.otp_service import run_otp_cleanup_sweeper
 
@@ -22,6 +24,7 @@ app.include_router(user_router)
 app.include_router(message_router)
 app.include_router(websoket_router)
 app.include_router(connection_router)
+app.include_router(file_router)
 
 
 @app.get("/")
@@ -46,3 +49,4 @@ app.add_middleware(
 async def start_background_tasks():
     asyncio.create_task(run_disappear_sweeper())
     asyncio.create_task(run_otp_cleanup_sweeper())
+    asyncio.create_task(run_file_cleanup_sweeper())

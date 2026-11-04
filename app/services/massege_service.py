@@ -1,22 +1,35 @@
 import asyncio
-from datetime import datetime, timezone
+import json
+from app.services.storage_service import TRANSFER_TTL
+from datetime import datetime
 
 from app.db.session import SessionLocal
 from app.models.message import Message
-
 
 BASE_SECONDS = 3
 PER_CHAR_SECONDS = 0.08
 MIN_SECONDS = 5
 MAX_SECONDS = 25
 
-IDLE_SLEEP_SECONDS = (
-    30  # how long to sleep if nothing is pending at all
-)
-sweep_trigger = (
-    asyncio.Event()
-)  # lets other code wake the sweeper early
+IDLE_SLEEP_SECONDS = 30  # how long to sleep if nothing is pending at all
+sweep_trigger = asyncio.Event()  # lets other code wake the sweeper early
 
+# Must match FILE_MESSAGE_PREFIX in the frontend's fileTransfer.ts
+FILE_MESSAGE_PREFIX = "evanesce-file:1:"
+# A file message lives as long as its transfer
+FILE_MESSAGE_DELAY_SECONDS = int(TRANSFER_TTL.total_seconds())
+
+
+def get_file_transfer_id(content: str) -> int | None:
+    """Return the transfer id inside a file message, or None if malformed."""
+    if not content.startswith(FILE_MESSAGE_PREFIX):
+        return None
+    try:
+        transfer_id = json.loads(content[len(FILE_MESSAGE_PREFIX):])["id"]
+    except (ValueError, KeyError, TypeError):
+        return None
+    # `type(...) is int` also rules out JSON true/false, which Python treats as ints
+    return transfer_id if type(transfer_id) is int and transfer_id > 0 else None
 
 def calculate_disappear_delay(content: str) -> int:
     delay = BASE_SECONDS + len(content) * PER_CHAR_SECONDS
@@ -40,9 +53,7 @@ async def run_disappear_sweeper():
 
             # --- Sweep 1: hide from sender ---
             sender_candidates = (
-                db.query(Message)
-                .filter(Message.hidden_from_sender == False)
-                .all()
+                db.query(Message).filter(Message.hidden_from_sender == False).all()
             )
             for msg in sender_candidates:
                 delay = msg.disappear_delay_seconds
@@ -55,9 +66,7 @@ async def run_disappear_sweeper():
                     msg.hidden_from_sender = True
                     db.commit()
                     if msg.sender_id in active_connection:
-                        await active_connection[
-                            msg.sender_id
-                        ].send_json(
+                        await active_connection[msg.sender_id].send_json(
                             {
                                 "type": "message_hidden_sender",
                                 "message_id": msg.id,
@@ -95,13 +104,9 @@ async def run_disappear_sweeper():
                         "message_id": message_id,
                     }
                     if sender_id in active_connection:
-                        await active_connection[sender_id].send_json(
-                            payload
-                        )
+                        await active_connection[sender_id].send_json(payload)
                     if receiver_id in active_connection:
-                        await active_connection[
-                            receiver_id
-                        ].send_json(payload)
+                        await active_connection[receiver_id].send_json(payload)
                 else:
                     next_wake = min(next_wake, remaining)
 
@@ -111,8 +116,6 @@ async def run_disappear_sweeper():
             db.close()
         sweep_trigger.clear()
         try:
-            await asyncio.wait_for(
-                sweep_trigger.wait(), timeout=max(1, next_wake)
-            )
-        except asyncio.TimeoutError:
+            await asyncio.wait_for(sweep_trigger.wait(), timeout=max(1, next_wake))
+        except TimeoutError:
             pass  # normal case — timer expired, loop again to check
