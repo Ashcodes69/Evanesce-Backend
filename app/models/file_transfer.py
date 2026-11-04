@@ -1,11 +1,12 @@
 from datetime import datetime, timezone
+
 from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
     ForeignKey,
-    Integer,
     Index,
+    Integer,
     String,
 )
 
@@ -24,16 +25,19 @@ class FileTransfer(Base):
     )
 
     id = Column(Integer, primary_key=True, index=True)
+    message_id = Column(
+        Integer,
+        ForeignKey(
+            "messages.id",
+            ondelete="SET NULL",
+            name="fk_file_transfers_message_id",
+        ),
+        nullable=True,
+    )
 
-    sender_id = Column(
-        Integer, ForeignKey("users.id"), nullable=False
-    )
-    receiver_id = Column(
-        Integer, ForeignKey("users.id"), nullable=False, index=True
-    )
-    storage_key = Column(
-        String, unique=True, nullable=False, index=True
-    )
+    sender_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    receiver_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    storage_key = Column(String, unique=True, nullable=False, index=True)
     size_bytes = Column(BigInteger, nullable=False)
     status = Column(String, nullable=False, default="pending")
     created_at = Column(

@@ -1,5 +1,5 @@
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy import func
@@ -7,38 +7,28 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.file_transfer import FileTransfer
+from app.models.message import Message
 from app.models.user import User
 from app.services.auth_service import get_current_user
 from app.services.connection_service import get_connection
+from app.services.massege_service import wake_sweeper
 from app.services.storage_service import (
+    FILE_CARD_LINGER_SECONDS,
+    MAX_FILE_BYTES,
+    MAX_PENDING_BYTES,
+    TRANSFER_TTL,
     BlobNotFoundError,
     StorageError,
-    delete_blob,
+    cleanup_blob,
     download_blob,
     generate_storage_key,
+    is_valid_dead_file,
     upload_blob,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-# ---- limits: change these in one place ----
-MAX_FILE_BYTES = 20 * 1024 * 1024  # largest single encrypted file
-TRANSFER_TTL = timedelta(hours=48)  # how long an undownloaded file may live
-MAX_PENDING_BYTES = 600 * 1024 * 1024  # total budget for all pending files
-
-# Every encrypted blob must start with this magic.
-FILE_MAGIC = b"DEAD"
-
-
-def _cleanup_blob(storage_key: str) -> None:
-    """Best-effort removal of a blob whose database row was never saved."""
-    try:
-        delete_blob(storage_key)
-    except StorageError:
-        # No row points at this blob, so nothing else will ever delete it.
-        logger.error("Orphaned blob needs manual cleanup: %s", storage_key)
 
 
 # ================== route to upload an encrypted file =================
@@ -63,8 +53,8 @@ def upload_file(
     if len(data) > MAX_FILE_BYTES:
         raise HTTPException(status_code=413, detail="file is too large")
 
-    # 3. Cheap format check: must look like one of our encrypted files.
-    if len(data) <= len(FILE_MAGIC) or not data.startswith(FILE_MAGIC):
+    # 3. Format check: must look like one of our encrypted files.
+    if not is_valid_dead_file(data):
         raise HTTPException(status_code=400, detail="invalid file format")
 
     # 4. Global storage budget across all pending transfers.
@@ -99,7 +89,7 @@ def upload_file(
         db.refresh(transfer)
     except Exception:
         db.rollback()
-        _cleanup_blob(storage_key)
+        cleanup_blob(storage_key)
         logger.exception("Could not save file transfer")
         raise HTTPException(status_code=500, detail="could not save the transfer")
 
@@ -148,3 +138,40 @@ def download_files(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+# ================== route to report a finished download =================
+@router.post("/files/{transfer_id}/complete")
+def complete_file(
+    transfer_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    transfer = db.query(FileTransfer).filter(FileTransfer.id == transfer_id).first()
+
+    # Only the receiver can report completion.
+    if not transfer or transfer.receiver_id != current_user.id:
+        raise HTTPException(status_code=404, detail="file not found")
+
+    # Reporting twice (a retry after a network error) is harmless.
+    if transfer.status == "downloaded":
+        return {"status": "downloaded"}
+
+    if transfer.status != "pending" or transfer.expires_at <= datetime.now(UTC):
+        raise HTTPException(status_code=410, detail="file is no longer available")
+
+    transfer.status = "downloaded"
+    transfer.downloaded_at = datetime.now(UTC)
+
+    # Shorten the file message's timer so the card disappears shortly after.
+    # The existing sweeper then deletes it and notifies both users.
+    if transfer.message_id:
+        message = db.query(Message).filter(Message.id == transfer.message_id).first()
+        if message:
+            message.status = "seen"
+            message.seen_at = datetime.now()
+            message.disappear_delay_seconds = FILE_CARD_LINGER_SECONDS
+
+    db.commit()
+    wake_sweeper()
+    return {"status": "downloaded"}

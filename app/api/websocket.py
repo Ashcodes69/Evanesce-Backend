@@ -1,17 +1,21 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from app.core.security import encrypt_message, verify_token
 from app.db.session import SessionLocal
+from app.models.file_transfer import FileTransfer
 from app.models.message import Message
 from app.models.user import User
-from app.core.security import verify_token, encrypt_message
 from app.services.connection_service import get_connection
 from app.services.massege_service import (
-    wake_sweeper,
+    FILE_MESSAGE_DELAY_SECONDS,
+    FILE_MESSAGE_PREFIX,
     calculate_disappear_delay,
+    get_file_transfer_id,
+    wake_sweeper,
 )
-
 
 router = APIRouter()
 active_connection = {}
@@ -57,9 +61,7 @@ async def websoket_endpoint(websoket: WebSocket):
 
     pending_messages = (
         db.query(Message)
-        .filter(
-            Message.receiver_id == user_id, Message.status == "sent"
-        )
+        .filter(Message.receiver_id == user_id, Message.status == "sent")
         .order_by(Message.created_at.asc())
         .all()
     )
@@ -92,9 +94,7 @@ async def websoket_endpoint(websoket: WebSocket):
                     and receiver_id in active_connection
                 ):
                     receiver_soket = active_connection[receiver_id]
-                    await receiver_soket.send_json(
-                        {"from": user_id, "type": "typing"}
-                    )
+                    await receiver_soket.send_json({"from": user_id, "type": "typing"})
                 continue
             message_text = data["message"]
             client_id = data.get("client_id")
@@ -110,6 +110,30 @@ async def websoket_endpoint(websoket: WebSocket):
                 continue
 
             delay_seconds = calculate_disappear_delay(message_text)
+
+            # A file message must point at a real, pending transfer from this
+            # sender to this receiver. It then lives as long as the transfer.
+            transfer = None
+            if message_text.startswith(FILE_MESSAGE_PREFIX):
+                transfer = (
+                    db.query(FileTransfer)
+                    .filter(
+                        FileTransfer.id == get_file_transfer_id(message_text),
+                        FileTransfer.sender_id == user_id,
+                        FileTransfer.receiver_id == receiver_id,
+                        FileTransfer.status == "pending",
+                        FileTransfer.message_id.is_(None),
+                        FileTransfer.expires_at > datetime.now(UTC),
+                    )
+                    .first()
+                )
+                if not transfer:
+                    await websoket.send_json(
+                        {"type": "error", "detail": "invalid file message"}
+                    )
+                    continue
+                delay_seconds = FILE_MESSAGE_DELAY_SECONDS
+
             encrypted_content = encrypt_message(message_text)
 
             new_message = Message(
@@ -121,6 +145,9 @@ async def websoket_endpoint(websoket: WebSocket):
             )
 
             db.add(new_message)
+            if transfer:
+                db.flush()  # assigns new_message.id
+                transfer.message_id = new_message.id
             db.commit()
             db.refresh(new_message)
             wake_sweeper()
@@ -153,7 +180,7 @@ async def websoket_endpoint(websoket: WebSocket):
             )
 
     except WebSocketDisconnect:
-        user.last_seen = datetime.now(timezone.utc)
+        user.last_seen = datetime.now(UTC)
         db.commit()
         del active_connection[user_id]
 

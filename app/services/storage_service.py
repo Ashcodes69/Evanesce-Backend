@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import secrets
+from datetime import timedelta
 from pathlib import Path
 
 import requests
@@ -22,6 +23,21 @@ logger = logging.getLogger(__name__)
 REQUEST_TIMEOUT_SECONDS = 60
 _STORAGE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_-]{32,64}$")
 
+# ---- limits: change these in one place ----
+MAX_FILE_BYTES = 20 * 1024 * 1024  # largest single encrypted file
+TRANSFER_TTL = timedelta(hours=48)  # how long an undownloaded file may live
+MAX_PENDING_BYTES = 600 * 1024 * 1024  # total budget for all pending files
+
+# Every encrypted blob must start with this magic.
+FILE_MAGIC = b"DEAD"
+
+FORMAT_VERSION = 2
+ALGORITHM_AES_256_GCM = 1
+CHUNK_SIZE = 1024 * 1024
+HEADER_BYTES = 18
+TAG_BYTES = 16
+
+FILE_CARD_LINGER_SECONDS = 10  # how long a file card stays after a completed download
 
 class StorageError(Exception):
     """Raised when the storage backend fails or is misconfigured."""
@@ -77,6 +93,32 @@ def delete_blob(storage_key: str) -> None:
     else:
         _supabase_delete(storage_key)
 
+
+def cleanup_blob(storage_key: str) -> None:
+    """Best-effort removal of a blob whose database row was never saved."""
+    try:
+        delete_blob(storage_key)
+    except StorageError:
+        # No row points at this blob, so nothing else will ever delete it.
+        logger.error("Orphaned blob needs manual cleanup: %s", storage_key)
+
+def is_valid_dead_file(data: bytes) -> bool:
+    """Structural check of the DEAD v2 format. The server cannot see inside
+    the encryption, so this only confirms the file has the right shape."""
+    if len(data) < HEADER_BYTES + TAG_BYTES:
+        return False
+    if not data.startswith(FILE_MAGIC):
+        return False
+    if data[4] != FORMAT_VERSION or data[5] != ALGORITHM_AES_256_GCM:
+        return False
+    if int.from_bytes(data[6:10], "big") != CHUNK_SIZE:
+        return False
+
+    body = len(data) - HEADER_BYTES
+    encrypted_chunk = CHUNK_SIZE + TAG_BYTES
+    chunk_count = -(-body // encrypted_chunk)  # ceiling division
+    last_chunk = body - (chunk_count - 1) * encrypted_chunk
+    return last_chunk >= TAG_BYTES
 
 # --------------------------------------------------------------------------
 # Local backend (development only)

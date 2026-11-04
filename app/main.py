@@ -10,6 +10,7 @@ from app.api.files import router as file_router
 from app.api.messages import router as message_router
 from app.api.users import router as user_router
 from app.api.websocket import router as websoket_router
+from app.services.file_service import run_file_cleanup_sweeper
 
 # from app.db.database import Base, engine
 from app.services.massege_service import run_disappear_sweeper
@@ -48,3 +49,4 @@ app.add_middleware(
 async def start_background_tasks():
     asyncio.create_task(run_disappear_sweeper())
     asyncio.create_task(run_otp_cleanup_sweeper())
+    asyncio.create_task(run_file_cleanup_sweeper())
